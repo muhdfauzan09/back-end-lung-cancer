@@ -241,7 +241,7 @@ def post_prediction(user):
 def post_prediction_image():
     if 'file' not in request.files:
         return jsonify({
-            "msg" : "File Not Found",
+            "msg" : "File Not Founds",
         })
     
     file = request.files['file']
