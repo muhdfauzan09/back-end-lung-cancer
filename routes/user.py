@@ -1,16 +1,26 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, url_for, send_from_directory, request, current_app
 from routes.authenticateUser import token_required_user
 from models.userModel import user_detail_model
 from models.patientModel import patient_detail_model, feature_detail_model
 from models.departmentModel import department_detail_model
+from werkzeug.utils import secure_filename
 from datetime import date
 from db import db
 import pickle
+import os
 
 user = Blueprint("user", __name__)
-UPLOAD_URL = '/path/to/the/upload'
-ALLOWED_EXTENSIONS = {'jpg', 'jpeg'}
+ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif'}
 
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+@user.route('/uploads/<filename>')
+def uploaded_file(filename):
+    return send_from_directory(current_app.config['UPLOAD_URL'],
+                               filename)
 
 # GET Dashboard
 @user.route('/user/dashboard', methods=['GET'])
@@ -160,7 +170,6 @@ def get_patient_details(user, id):
         }), 500
 
 
-
 # GET Prediction
 @user.route("/user/get/prediction", methods=["GET"])
 @token_required_user
@@ -237,16 +246,35 @@ def post_prediction(user):
         }), 500
 
 
+# POST Images Classifications
 @user.route("/user/post/prediction/image", methods=["POST"])
 def post_prediction_image():
-    if 'file' not in request.files:
-        return jsonify({
-            "msg" : "File Not Founds",
-        })
-    
-    file = request.files['file']
+    if request.method == "POST":
+        if 'file' not in request.files:
+            return jsonify({
+                "msg" : "File Not Found",
+            }), 400
+        
+        file = request.files['file']
 
-    return jsonify({
-        "status" : 200,
-        "file" : file.filename
-    }), 200
+        if file.filename == '':
+            return jsonify({
+                "msg" : "No selected file",
+            }), 400
+
+        if file and allowed_file(file.filename):
+            if not os.path.exists(current_app.config['UPLOAD_URL']):
+                os.makedirs(current_app.config['UPLOAD_URL'])
+            
+            filename = secure_filename(file.filename)
+            file.save(os.path.join(current_app.config['UPLOAD_URL'], filename))
+
+            file_url = url_for('user.uploaded_file', filename=filename)
+            return jsonify({
+                "status" : 200,
+                "file" : file_url
+            }), 200
+        else:
+            return jsonify({
+                "msg" : "File not allowed",
+            }), 400
