@@ -1,9 +1,9 @@
+import jwt
+import base64
+from db import db
 from flask import Blueprint, request, jsonify
 from models.userModel import user_detail_model
 from models.departmentModel import department_detail_model
-from db import db
-import jwt
-import base64
 
 auth = Blueprint('auth', __name__)
 

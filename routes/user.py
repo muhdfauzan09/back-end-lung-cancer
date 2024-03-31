@@ -1,17 +1,19 @@
-from flask import Blueprint, jsonify, url_for, send_from_directory, request, current_app
-from routes.authenticateUser import token_required_user
-from models.userModel import user_detail_model
-from models.patientModel import patient_detail_model, feature_detail_model
-from models.departmentModel import department_detail_model
-from werkzeug.utils import secure_filename
-from datetime import date
-from db import db
-import pickle
 import os
+import pickle
+from db import db
+from datetime import date
+from werkzeug.utils import secure_filename
+from routes.authenticateUser import token_required_user
+from flask import Blueprint, jsonify, url_for, send_from_directory, request, current_app
+
+# Models
+from models.userModel import user_detail_model
+from models.departmentModel import department_detail_model
+from models.patientModel import patient_detail_model, feature_detail_model
+
 
 user = Blueprint("user", __name__)
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif'}
-
 
 # Check the file type
 def allowed_file(filename):

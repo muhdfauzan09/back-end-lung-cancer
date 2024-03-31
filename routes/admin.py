@@ -1,9 +1,11 @@
-from flask import Blueprint, jsonify, request
-from models.userModel import user_detail_model
-from models.departmentModel import department_detail_model
-from models.patientModel import patient_detail_model
-from routes.authenticateUser import token_required_admin
 from db import db
+from flask import Blueprint, jsonify, request
+from routes.authenticateUser import token_required_admin
+
+# Models
+from models.userModel import user_detail_model
+from models.patientModel import patient_detail_model
+from models.departmentModel import department_detail_model
 
 # crete intance
 admin = Blueprint('admin', __name__)
@@ -210,7 +212,7 @@ def admin_view(user, id):
         }), 500
 
 
-# Post Status
+# POST Status
 @admin.route("/admin/doctor/update/<int:id>", methods=["POST"])
 @token_required_admin
 def update_doctor_status(user, id):
@@ -243,6 +245,7 @@ def update_doctor_status(user, id):
         }), 500
 
 
+# GET Patient
 @admin.route("/admin/get/patient/details/<int:id>", methods=['GET'])
 @token_required_admin
 def get_patient_details(user, id):

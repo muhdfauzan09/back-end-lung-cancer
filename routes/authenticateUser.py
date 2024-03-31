@@ -1,7 +1,7 @@
+import jwt
+from functools import wraps
 from flask import Blueprint, request, jsonify
 from models.userModel import user_detail_model
-from functools import wraps
-import jwt
 
 auth = Blueprint("auth", __name__)
 
