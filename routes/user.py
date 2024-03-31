@@ -13,14 +13,10 @@ user = Blueprint("user", __name__)
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif'}
 
 
+# Check the file type
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-
-@user.route('/uploads/<filename>')
-def uploaded_file(filename):
-    return send_from_directory(current_app.config['UPLOAD_URL'],
-                               filename)
 
 # GET Dashboard
 @user.route('/user/dashboard', methods=['GET'])
@@ -154,6 +150,7 @@ def get_patient_details(user, id):
                     "shortness_breath": feature.shortness_breath,
                     "swallowing_difficulty": feature.swallowing_difficulty,
                     "chest_pain": feature.chest_pain,
+                    "image_path" :feature.image_path,
                     "lung_cancer": feature.lung_cancer
                 }
                 patient_list.append({**patient_detail, **feature_detail})
@@ -247,34 +244,40 @@ def post_prediction(user):
 
 
 # POST Images Classifications
-@user.route("/user/post/prediction/image", methods=["POST"])
-def post_prediction_image():
+@user.route("/user/post/prediction/image/<int:patient_id>", methods=["POST"])
+def post_prediction_image(patient_id):
     if request.method == "POST":
         if 'file' not in request.files:
-            return jsonify({
-                "msg" : "File Not Found",
-            }), 400
+            return jsonify({"msg": "File Not Found"}), 400
         
         file = request.files['file']
 
         if file.filename == '':
-            return jsonify({
-                "msg" : "No selected file",
-            }), 400
+            return jsonify({"msg": "No selected file"}), 400
 
         if file and allowed_file(file.filename):
-            if not os.path.exists(current_app.config['UPLOAD_URL']):
-                os.makedirs(current_app.config['UPLOAD_URL'])
-            
-            filename = secure_filename(file.filename)
-            file.save(os.path.join(current_app.config['UPLOAD_URL'], filename))
+            upload_directory = current_app.config['UPLOAD_URL']
+            if not os.path.exists(upload_directory):
+                os.makedirs(upload_directory)
 
-            file_url = url_for('user.uploaded_file', filename=filename)
+            check_update = feature_detail_model.query.filter_by(patient_id=patient_id).first()
+            file_name = secure_filename(file.filename)
+            image_url = os.path.join(upload_directory, file_name)
+
+            if check_update.image_path is None:
+                check_update.image_path = image_url
+            else:
+                os.path.exists(check_update.image_path) and check_update.image_path
+                check_update.image_path = image_url
+
+            file.save(image_url)
+            db.session.commit()
+
             return jsonify({
-                "status" : 200,
-                "file" : file_url
+                "status": 200, 
+                "file": image_url
             }), 200
         else:
             return jsonify({
-                "msg" : "File not allowed",
-            }), 400
+                 "msg": "This file type isn't supported"
+                }), 400
