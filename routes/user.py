@@ -4,7 +4,7 @@ from db import db
 from datetime import date
 from werkzeug.utils import secure_filename
 from routes.authenticateUser import token_required_user
-from flask import Blueprint, jsonify, url_for, send_from_directory, request, current_app
+from flask import Blueprint, jsonify, request, current_app
 
 # Models
 from models.userModel import user_detail_model
@@ -16,6 +16,8 @@ user = Blueprint("user", __name__)
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif'}
 
 # Check the file type
+
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
@@ -66,50 +68,98 @@ def get_visualisation(user):
     })
 
 
-# GET Patient List
-@user.route("/user/get/patient", methods=["GET"])
+# Backend route for POST request
+@user.route("/user/get/patient", methods=["GET", "POST"])
 @token_required_user
 def get_patient(user):
     try:
-        get_patient = patient_detail_model.query.filter_by(
-            department_id=user["department_id"]).all()
+        if request.method == "GET":
+            patients = patient_detail_model.query.filter_by(
+                department_id=user["department_id"]).all()
 
-        if not get_patient:
+            if not patients:
+                return jsonify({
+                    "code": 404,
+                    "msg": "No patients found for the given department",
+                }), 404
+
+            patient_list = []
+            for patient in patients:
+                patient_detail = {
+                    "patient_id": patient.patient_id,
+                    "patient_name": patient.patient_name,
+                    "department_id": patient.department_id,
+                    "patient_gender": patient.patient_gender,
+                    "patient_address1": patient.patient_address1,
+                    "patient_address2": patient.patient_address2,
+                    "patient_postcode": patient.patient_postcode,
+                    "patient_phone_number": patient.patient_phone_number,
+                }
+
+                if patient.feature_detail:
+                    for feature in patient.feature_detail:
+                        feature_detail = {
+                            "lung_cancer": feature.lung_cancer
+                        }
+                    patient_detail.update(feature_detail)
+
+                patient_list.append(patient_detail)
+
             return jsonify({
-                "status": 500,
-                "msg": "User Not Found",
-            }), 500
+                "code": 200,
+                "data": patient_list
+            })
 
-        patient_list = []
-        for patient in get_patient:
-            patient_detail = {
-                "patient_id": patient.patient_id,
-                "patient_name": patient.patient_name,
-                "patient_gender": patient.patient_gender,
-                "patient_address1": patient.patient_address1,
-                "patient_address2": patient.patient_address2,
-                "patient_postcode": patient.patient_postcode,
-                "patient_phone_number": patient.patient_phone_number,
-            }
+        elif request.method == "POST":
+            lung_cancer = request.get_json()
 
-            if patient.feature_detail:
-                for feature in patient.feature_detail:
-                    feature_detail = {
-                        "lung_cancer": feature.lung_cancer
-                    }
+            if "patient" not in lung_cancer or "lung_cancer" not in lung_cancer:
+                return jsonify({
+                    "code": 400,
+                    "msg": "Patient name or lung cancer status not provided"
+                }), 400
 
-                    patient_list.append({**patient_detail, **feature_detail})
+            patients = patient_detail_model.query \
+                .join(feature_detail_model) \
+                .filter(patient_detail_model.department_id == user["department_id"]) \
+                .filter(feature_detail_model.lung_cancer == lung_cancer["lung_cancer"]) \
+                .all()
 
-        return jsonify({
-            "code": 200,
-            "data": patient_list
-        })
+            # .filter(patient_detail_model.patient_name.like(lung_cancer["patient"])) \
+
+            patient_data = []
+            for patient in patients:
+                patient_detail = {
+                    "patient_id": patient.patient_id,
+                    "patient_name": patient.patient_name,
+                    "department_id": patient.department_id,
+                    "patient_gender": patient.patient_gender,
+                    "patient_address1": patient.patient_address1,
+                    "patient_address2": patient.patient_address2,
+                    "patient_postcode": patient.patient_postcode,
+                    "patient_phone_number": patient.patient_phone_number,
+                }
+
+                if patient.feature_detail:
+                    for feature in patient.feature_detail:
+                        feature_detail = {
+                            "lung_cancer": feature.lung_cancer
+                        }
+                    patient_detail.update(feature_detail)
+
+                patient_data.append(patient_detail)
+
+            return jsonify({
+                "code": 200,
+                "data": patient_data
+            })
 
     except Exception as e:
         return jsonify({
             "code": 500,
-            "msg": str(e)
-        })
+            "msg": "An error occurred while processing the request",
+            "error": str(e)
+        }), 500
 
 
 # GET Patient Details
@@ -117,8 +167,9 @@ def get_patient(user):
 @token_required_user
 def get_patient_details(user, id):
     try:
-        get_patient = patient_detail_model.query.filter_by(patient_id=id).first()
-        
+        get_patient = patient_detail_model.query.filter_by(
+            patient_id=id).first()
+
         if not get_patient:
             return jsonify({
                 "code": 404,
@@ -152,7 +203,7 @@ def get_patient_details(user, id):
                     "shortness_breath": feature.shortness_breath,
                     "swallowing_difficulty": feature.swallowing_difficulty,
                     "chest_pain": feature.chest_pain,
-                    "image_path" :feature.image_path,
+                    "image_path": feature.image_path,
                     "lung_cancer": feature.lung_cancer
                 }
                 patient_list.append({**patient_detail, **feature_detail})
@@ -199,12 +250,12 @@ def post_prediction(user):
 
         new_patient = patient_detail_model(
             department_id=department.department_id,
-            patient_name=data["fullName"],
+            patient_name=data["fullName"].upper(),
             patient_gender=data["gender"],
             patient_phone_number=data["phoneNumber"],
-            patient_address1=data["address1"],
-            patient_address2=data["address2"],
-            patient_postcode=data['postcode']
+            patient_address1=data["address1"].upper(),
+            patient_address2=data["address2"].upper(),
+            patient_postcode=data['postcode'].upper()
         )
 
         db.session.add(new_patient)
@@ -251,7 +302,7 @@ def post_prediction_image(patient_id):
     if request.method == "POST":
         if 'file' not in request.files:
             return jsonify({"msg": "File Not Found"}), 400
-        
+
         file = request.files['file']
 
         if file.filename == '':
@@ -262,24 +313,26 @@ def post_prediction_image(patient_id):
             if not os.path.exists(upload_directory):
                 os.makedirs(upload_directory)
 
-            check_update = feature_detail_model.query.filter_by(patient_id=patient_id).first()
+            check_update = feature_detail_model.query.filter_by(
+                patient_id=patient_id).first()
             file_name = secure_filename(file.filename)
             image_url = os.path.join(upload_directory, file_name)
 
             if check_update.image_path is None:
                 check_update.image_path = image_url
             else:
-                os.path.exists(check_update.image_path) and check_update.image_path
+                os.path.exists(
+                    check_update.image_path) and check_update.image_path
                 check_update.image_path = image_url
 
             file.save(image_url)
             db.session.commit()
 
             return jsonify({
-                "status": 200, 
+                "status": 200,
                 "file": image_url
             }), 200
         else:
             return jsonify({
-                 "msg": "This file type isn't supported"
-                }), 400
+                "msg": "This file type isn't supported"
+            }), 400
