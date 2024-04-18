@@ -15,9 +15,8 @@ from models.patientModel import patient_detail_model, feature_detail_model
 user = Blueprint("user", __name__)
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif'}
 
+
 # Check the file type
-
-
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
@@ -68,7 +67,7 @@ def get_visualisation(user):
     })
 
 
-# Backend route for POST request
+# POST find patient
 @user.route("/user/get/patient", methods=["GET", "POST"])
 @token_required_user
 def get_patient(user):
@@ -119,13 +118,20 @@ def get_patient(user):
                     "msg": "Patient name or lung cancer status not provided"
                 }), 400
 
-            patients = patient_detail_model.query \
-                .join(feature_detail_model) \
-                .filter(patient_detail_model.department_id == user["department_id"]) \
-                .filter(feature_detail_model.lung_cancer == lung_cancer["lung_cancer"]) \
-                .all()
-
-            # .filter(patient_detail_model.patient_name.like(lung_cancer["patient"])) \
+            if lung_cancer["patient"] is "":
+                patients = patient_detail_model.query \
+                    .join(feature_detail_model) \
+                    .filter(patient_detail_model.department_id == user["department_id"]) \
+                    .filter(feature_detail_model.lung_cancer == lung_cancer["lung_cancer"]) \
+                    .all()
+            else:
+                search = "%{}%".format(lung_cancer["patient"])
+                patients = patient_detail_model.query \
+                    .join(feature_detail_model) \
+                    .filter(patient_detail_model.department_id == user["department_id"]) \
+                    .filter(feature_detail_model.lung_cancer == lung_cancer["lung_cancer"]) \
+                    .filter(patient_detail_model.patient_name.like(search)) \
+                    .all()
 
             patient_data = []
             for patient in patients:
