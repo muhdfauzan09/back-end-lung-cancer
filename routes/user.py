@@ -22,21 +22,109 @@ def allowed_file(filename):
 
 
 # GET Dashboard
-@user.route('/user/dashboard', methods=['GET'])
+@user.route('/user/get/dashboard', methods=['GET'])
 @token_required_user
 def get_dashboard(user):
     try:
-        get_user = user_detail_model.query.filter_by(
-            user_id=user["user_id"]).first()
-        if not get_user:
+        user_details = user_detail_model.query \
+            .join(department_detail_model) \
+            .filter(department_detail_model.user_id == user["user_id"]).first()
+
+        if not user_details:
             return jsonify({
-                "msg": "No User Found",
+                "msg": "User not found",
                 "status": 400,
             }), 400
 
+        department = user_details.department_detail  # Relationship Table
+
+        # Total Number Patient
+        total_patients = patient_detail_model.query \
+            .filter(patient_detail_model.department_id == department.department_id).count()
+
+        # Male Patient Count
+        male_patient_count = patient_detail_model.query \
+            .filter(patient_detail_model.department_id == department.department_id) \
+            .filter(patient_detail_model.patient_gender == "Male").count()
+
+        # Female patient Count
+        female_patient_count = patient_detail_model.query \
+            .filter(patient_detail_model.department_id == department.department_id) \
+            .filter(patient_detail_model.patient_gender == "Female").count()
+
+        # Postive Patient Count
+        postive_patient_count = patient_detail_model.query \
+            .join(feature_detail_model) \
+            .filter(patient_detail_model.department_id == department.department_id) \
+            .filter(feature_detail_model.lung_cancer == "1").count()
+
+        # Negative Patient Count
+        negative_patient_count = patient_detail_model.query \
+            .join(feature_detail_model) \
+            .filter(patient_detail_model.department_id == department.department_id) \
+            .filter(feature_detail_model.lung_cancer == "0").count()
+
+        # Get top 10 Patient
+        get_patient = patient_detail_model.query \
+            .filter(patient_detail_model.department_id == department.department_id) \
+            .order_by(patient_detail_model.patient_id.desc()).limit(10).all()
+
+        patient_list = []
+        for patient in get_patient:
+            patient_detail = {
+                "patient_id": patient.patient_id,
+                "patient_name": patient.patient_name,
+                "department_id": patient.department_id,
+                "patient_gender": patient.patient_gender,
+                "patient_address1": patient.patient_address1,
+                "patient_address2": patient.patient_address2,
+                "patient_postcode": patient.patient_postcode,
+                "patient_phone_number": patient.patient_phone_number,
+            }
+
+            if patient.feature_detail:
+                for feature in patient.feature_detail:
+                    feature_detail = {
+                        "lung_cancer": feature.lung_cancer,
+                        "date_consultation": feature.date_application
+                    }
+                patient_detail.update(feature_detail)
+
+            patient_list.append(patient_detail)
+
+        return jsonify({
+            "status": 200,
+            "user_data": user_details.user_email,
+            "total_patients": total_patients,
+            "male_patient_count": male_patient_count,
+            "female_patient_count": female_patient_count,
+            "positive_patient_count": postive_patient_count,
+            "negative_patient_count": negative_patient_count,
+            "patient_list": patient_list,
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            "status": 500,
+            "error": str(e)
+        }), 500
+
+
+# GET Setting
+@user.route("/user/get/setting", methods=["GET"])
+@token_required_user
+def get_setting(user):
+    try:
+        get_user = user_detail_model.query.filter_by(
+            user_id=user["user_id"]).first()
+
+        if not get_user:
+            return jsonify({
+                "status": 404,
+                "msg": "User not found"
+            }), 404
+
         user_detail = {
-            "user_id": get_user.user_id,
-            "role_id": get_user.role_id,
             "user_first_name": get_user.user_first_name,
             "user_last_name": get_user.user_last_name,
             "user_email": get_user.user_email,
@@ -44,16 +132,26 @@ def get_dashboard(user):
             "user_status": get_user.user_status,
         }
 
+        department = get_user.department_detail  # Relationship
+        department_detail = {
+            "department_type_id": department.department_type_id,
+            "department_name": department.department_name,
+            "department_address": department.department_address,
+            "city": department.city,
+            "zipCode": department.zipcode,
+            "state": department.state,
+        }
+
         return jsonify({
-            "msg": "User Found",
             "status": 200,
-            "data": user_detail,
-            # "model": loaded_model_predictions.tolist(),
+            "user_detail": user_detail,
+            "department_detail": department_detail,
         }), 200
 
     except Exception as e:
         return jsonify({
-            "status": 500,
+            "code": 500,
+            "msg": "An error occurred while processing the request",
             "error": str(e)
         }), 500
 

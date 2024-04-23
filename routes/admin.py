@@ -158,7 +158,10 @@ def list_doctor(user):
 def list_department(user):
     try:
         if request.method == "GET":
-            get_department = department_detail_model.query.all()
+            get_department = department_detail_model.query \
+                .join(user_detail_model) \
+                .filter(user_detail_model.user_id == department_detail_model.user_id) \
+                .filter(user_detail_model.user_status == "Approved").all()
 
             if not get_department:
                 return jsonify({
@@ -178,6 +181,7 @@ def list_department(user):
                     "state": department.state,
                     "zipcode": department.zipcode
                 }
+
                 department_list.append(department_detail)
 
             return jsonify({

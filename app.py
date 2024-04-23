@@ -7,7 +7,7 @@ from db import db
 
 app = Flask(__name__)
 
-UPLOAD_URL = 'static/images/' 
+UPLOAD_URL = 'static/images/'
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif'}
 
 app.register_blueprint(auth)
@@ -15,12 +15,13 @@ app.register_blueprint(admin)
 app.register_blueprint(user)
 CORS(app)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:@localhost/lung_cancer'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql://root:@localhost/lung_cancer'
 app.config['UPLOAD_URL'] = UPLOAD_URL
 
 db.init_app(app)
 
+
+@app.route('/test', )
 @app.teardown_appcontext
 def close_db(error):
     db.session.remove()
