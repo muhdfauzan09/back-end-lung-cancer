@@ -8,6 +8,8 @@ from models.departmentModel import department_detail_model
 auth = Blueprint('auth', __name__)
 
 # Register
+
+
 @auth.route('/user/register', methods=['POST'])
 def register_user():
     try:
@@ -79,7 +81,7 @@ def login():
 
         if not user:
             return jsonify({
-                "msg": "User does not exist",
+                "msg": "User doesn't exist.",
                 "code": 400,
             }), 400
 
@@ -90,7 +92,7 @@ def login():
         decrypted_password = base64.b64decode(user_password).decode("utf-8")
         secret_key = "secret_key"
 
-        if user_role_id == 2 and decrypted_password == password and user_email == email and  user_status == "Approved":
+        if user_role_id == 2 and decrypted_password == password and user_email == email and user_status == "Approved":
             access_token = jwt.encode({
                 'user_id': user.user_id,
                 'department_id': user.department_detail.department_id,
@@ -104,7 +106,7 @@ def login():
                 "access_token": access_token,
                 "role_id": user.role_id
             }), 200
-        
+
         if user_role_id == 1 and user_email == email and decrypted_password == password:
             access_token = jwt.encode({
                 'user_id': user.user_id,
@@ -118,10 +120,10 @@ def login():
                 "access_token": access_token,
                 "role_id": user.role_id
             }), 200
-        
+
         else:
             return jsonify({
-                "msg": "Your Account does not verified yet",
+                "msg": "The password is incorrect.",
                 "code": 401,
             }), 401
 

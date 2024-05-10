@@ -1,19 +1,21 @@
 import os
+import base64
 import pickle
 from db import db
+import numpy as np
 from datetime import date
-from werkzeug.utils import secure_filename
-from routes.authenticateUser import token_required_user
-from flask import Blueprint, jsonify, request, current_app
+from keras.preprocessing import image
 
-# Models
-from models.userModel import user_detail_model
-from models.departmentModel import department_detail_model
 from models.patientModel import patient_detail_model, feature_detail_model
+from models.departmentModel import department_detail_model
+from models.userModel import user_detail_model
+from flask import Blueprint, jsonify, request, current_app
+from routes.authenticateUser import token_required_user
+from werkzeug.utils import secure_filename
 
 
 user = Blueprint("user", __name__)
-ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif'}
+ALLOWED_EXTENSIONS = {'jpg', 'jpeg'}
 
 
 # Check the file type
@@ -130,6 +132,7 @@ def get_setting(user):
             "user_email": get_user.user_email,
             "user_phone_number": get_user.user_phone_number,
             "user_status": get_user.user_status,
+            "user_profile_image": get_user.user_profile_image
         }
 
         department = get_user.department_detail  # Relationship
@@ -153,6 +156,92 @@ def get_setting(user):
             "code": 500,
             "msg": "An error occurred while processing the request",
             "error": str(e)
+        }), 500
+
+
+# POST Change Password
+@user.route("/user/post/new_password", methods=["POST"])
+@token_required_user
+def change_password(user):
+    try:
+        get_data = request.get_json()
+        check_user = user_detail_model.query.filter(
+            user_detail_model.user_id == user["user_id"]).first()
+
+        if not check_user:
+            return jsonify({
+                "code": 400,
+                "msg": "No user found"
+            }), 400
+
+        get_password = check_user.user_password
+        decode_password = base64.b64decode(get_password).decode("utf-8")
+
+        if decode_password == get_data['oldPassword']:
+            encode_password = base64.b64encode(
+                get_data["newPassword"].encode("utf-8"))
+            check_user.user_password = encode_password
+            db.session.commit()
+            return jsonify({
+                "code": 200,
+                "msg": "Password has been updated"
+            }), 200
+        else:
+            return jsonify({
+                "code": 400,
+                "msg": "Old password is not the same as new password."
+            }), 400
+
+    except Exception as e:
+        return jsonify({
+            "code": 500,
+            "msg": "An error occurred while processing the request",
+            "error": str(e)
+        }), 500
+
+
+# POST Upload Image Profile
+@user.route("/user/post/add_user_profile", methods=["POST"])
+@token_required_user
+def add_user_profile(user):
+    try:
+        if 'file' not in request.files:
+            return jsonify({
+                "msg": "No file part in the request"
+            }), 400
+
+        file = request.files['file']
+
+        if file.filename == '':
+            return jsonify({
+                "msg": "No selected file"
+            }), 400
+
+        if file and allowed_file(file.filename):
+            upload_directory = current_app.config['UPLOAD_URL_IMAGE_PROFILE']
+            if not os.path.exists(upload_directory):
+                os.makedirs(upload_directory)
+
+            check_user = user_detail_model.query.filter_by(
+                user_id=user['user_id']).first()  # Check User
+
+            file_name = secure_filename(file.filename)
+            image_url = os.path.join(upload_directory, file_name)
+            file.save(image_url)  # Save File
+            check_user.user_profile_image = image_url  # Update Column
+            db.session.commit()
+            return jsonify({
+                "msg": "File uploaded successfully"
+            }), 200
+
+        else:
+            return jsonify({
+                "msg": "File type not allowed"
+            }), 400
+
+    except Exception as e:
+        return jsonify({
+            "msg": "Error processing the image: " + str(e)
         }), 500
 
 
@@ -216,7 +305,7 @@ def get_patient(user):
                     "msg": "Patient name or lung cancer status not provided"
                 }), 400
 
-            if lung_cancer["patient"] is "":
+            if lung_cancer["patient"] == "":
                 patients = patient_detail_model.query \
                     .join(feature_detail_model) \
                     .filter(patient_detail_model.department_id == user["department_id"]) \
@@ -308,6 +397,7 @@ def get_patient_details(user, id):
                     "swallowing_difficulty": feature.swallowing_difficulty,
                     "chest_pain": feature.chest_pain,
                     "image_path": feature.image_path,
+                    "image_class": feature.image_class,
                     "lung_cancer": feature.lung_cancer
                 }
                 patient_list.append({**patient_detail, **feature_detail})
@@ -400,43 +490,74 @@ def post_prediction(user):
         }), 500
 
 
-# POST Images Classifications
+# POST Image Classificaton
 @user.route("/user/post/prediction/image/<int:patient_id>", methods=["POST"])
 def post_prediction_image(patient_id):
     if request.method == "POST":
-        if 'file' not in request.files:
-            return jsonify({"msg": "File Not Found"}), 400
+        try:
+            # Check if the image from is sent to the server
+            if 'file' not in request.files:
+                return jsonify({
+                    "msg": "File Not Found"
+                }), 400
 
-        file = request.files['file']
+            file = request.files['file']
 
-        if file.filename == '':
-            return jsonify({"msg": "No selected file"}), 400
+            if file.filename == '':
+                return jsonify({
+                    "msg": "No selected file"
+                }), 400
 
-        if file and allowed_file(file.filename):
-            upload_directory = current_app.config['UPLOAD_URL']
-            if not os.path.exists(upload_directory):
-                os.makedirs(upload_directory)
+            if file and allowed_file(file.filename):
+                upload_directory = current_app.config['UPLOAD_URL_IMAGE_CLASS']
+                if not os.path.exists(upload_directory):
+                    os.makedirs(upload_directory)
 
-            check_update = feature_detail_model.query.filter_by(
-                patient_id=patient_id).first()
-            file_name = secure_filename(file.filename)
-            image_url = os.path.join(upload_directory, file_name)
+                # Check data
+                check_update = feature_detail_model.query.filter_by(
+                    patient_id=patient_id).first()
 
-            if check_update.image_path is None:
+                file_name = secure_filename(file.filename)
+                image_url = os.path.join(upload_directory, file_name)
+
+                # Check if the image is already exists
+                if check_update.image_path is None:
+                    file.save(image_url)
+                elif os.path.exists(check_update.image_path):
+                    os.remove(check_update.image_path)
+                    file.save(image_url)
+
+                # Loaded the model
+                loaded_model = pickle.load(
+                    open(r"C:\Sem 5\FYP\lung-cancer-image-classification.pkl", "rb"))
+
+                image_pred = image.load_img(image_url, target_size=(224, 224))
+                image_pred = image.img_to_array(image_pred)
+                image_pred = np.expand_dims(image_pred, axis=0)
+
+                predictions = loaded_model.predict(image_pred)
+                if predictions[0][0] == 1.0:
+                    prediction_result = "Negative"
+                elif predictions[0][1] == 1.0:
+                    prediction_result = "Positive"
+
+                # Update data
                 check_update.image_path = image_url
+                check_update.image_class = prediction_result
+                db.session.commit()
+
+                return jsonify({
+                    "status": 200,
+                    "file": image_url,
+                    "prediction": prediction_result
+                }), 200
             else:
-                os.path.exists(
-                    check_update.image_path) and check_update.image_path
-                check_update.image_path = image_url
+                return jsonify({
+                    "msg": "File is not supported",
+                    "error": 400
+                }), 400
 
-            file.save(image_url)
-            db.session.commit()
-
+        except Exception as e:
             return jsonify({
-                "status": 200,
-                "file": image_url
-            }), 200
-        else:
-            return jsonify({
-                "msg": "This file type isn't supported"
-            }), 400
+                "msg": "Error processing the image: " + str(e)
+            }), 500
