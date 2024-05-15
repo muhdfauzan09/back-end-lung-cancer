@@ -1,21 +1,26 @@
 import os
 import base64
 import pickle
-from db import db
 import numpy as np
-from datetime import date
-from keras.preprocessing import image
 
-from models.patientModel import patient_detail_model, feature_detail_model
-from models.departmentModel import department_detail_model
-from models.userModel import user_detail_model
-from flask import Blueprint, jsonify, request, current_app
-from routes.authenticateUser import token_required_user
+from db import db
+from datetime import date
+from flask_mail import Mail, Message
+from keras.preprocessing import image
 from werkzeug.utils import secure_filename
+from password_generator import PasswordGenerator
+from routes.authenticateUser import token_required_user
+from flask import Blueprint, jsonify, request, current_app
+
+# Models
+from models.userModel import user_detail_model
+from models.departmentModel import department_detail_model
+from models.patientModel import patient_detail_model, feature_detail_model
 
 
 user = Blueprint("user", __name__)
 ALLOWED_EXTENSIONS = {'jpg', 'jpeg'}
+mail = Mail()
 
 
 # Check the file type
@@ -96,13 +101,14 @@ def get_dashboard(user):
 
         return jsonify({
             "status": 200,
-            "user_data": user_details.user_email,
+            "patient_list": patient_list,
             "total_patients": total_patients,
+            "user_data": user_details.user_email,
             "male_patient_count": male_patient_count,
             "female_patient_count": female_patient_count,
             "positive_patient_count": postive_patient_count,
             "negative_patient_count": negative_patient_count,
-            "patient_list": patient_list,
+            "user_image_profile": user_details.user_profile_image
         }), 200
 
     except Exception as e:
@@ -159,14 +165,14 @@ def get_setting(user):
         }), 500
 
 
-# POST Change Password
+# POST Update Password
 @user.route("/user/post/new_password", methods=["POST"])
 @token_required_user
 def change_password(user):
     try:
         get_data = request.get_json()
-        check_user = user_detail_model.query.filter(
-            user_detail_model.user_id == user["user_id"]).first()
+        check_user = user_detail_model.query.filter_by(
+            user_id=user['user_id']).first()
 
         if not check_user:
             return jsonify({
@@ -180,8 +186,27 @@ def change_password(user):
         if decode_password == get_data['oldPassword']:
             encode_password = base64.b64encode(
                 get_data["newPassword"].encode("utf-8"))
+
+            # Update and Commit
             check_user.user_password = encode_password
             db.session.commit()
+
+            msg = Message(
+                'Pneumocast - Password Updated',
+                sender='muhdfauzan114@gmail.com',
+                recipients=[check_user.user_email],
+            )
+            msg.body = f'''Dear {check_user.user_first_name} {check_user.user_last_name},
+
+            Your password for accessing Pneumocast has been successfully updated. We want to ensure the security of your account, so please keep this information confidential and do not share it with anyone.
+
+            Thank you for choosing Pneumocast for your healthcare needs.
+
+            Best regards,
+            The Pneumocast Team
+            '''
+            mail.send(msg)
+
             return jsonify({
                 "code": 200,
                 "msg": "Password has been updated"
@@ -189,7 +214,7 @@ def change_password(user):
         else:
             return jsonify({
                 "code": 400,
-                "msg": "Old password is not the same as new password."
+                "msg": "Old password is not correct."
             }), 400
 
     except Exception as e:
@@ -245,6 +270,61 @@ def add_user_profile(user):
         }), 500
 
 
+# POST Edit Image Profile
+@user.route("/user/post/edit_user_profile", methods=["POST"])
+@token_required_user
+def edit_user_profile(user):
+    try:
+        if 'file' not in request.files:
+            return jsonify({
+                "msg": "No file part in the request"
+            }), 400
+
+        file = request.files['file']
+
+        if file.filename == '':
+            return jsonify({
+                "msg": "No selected file"
+            }), 400
+
+        if file and allowed_file(file.filename):
+            upload_directory = current_app.config['UPLOAD_URL_IMAGE_PROFILE']
+            if not os.path.exists(upload_directory):
+                os.makedirs(upload_directory)
+
+            check_user = user_detail_model.query.filter_by(
+                user_id=user['user_id']).first()  # Check User
+
+            file_name = secure_filename(file.filename)
+            image_url = os.path.join(upload_directory, file_name)
+
+            # Check if the image is already exists
+            if check_user.user_profile_image is None:
+                file.save(image_url)
+            elif os.path.exists(check_user.user_profile_image):
+                os.remove(check_user.user_profile_image)
+                file.save(image_url)
+
+            check_user.user_profile_image = image_url
+            db.session.commit()
+
+            return jsonify({
+                "code": 200,
+                "msg": "File uploaded successfully"
+            }), 200
+
+        else:
+            return jsonify({
+                "code": 404,
+                "msg": "File type not allowed"
+            }), 400
+
+    except Exception as e:
+        return jsonify({
+            "msg": "Error processing the image: " + str(e)
+        }), 500
+
+
 # GET Visualisation
 @user.route("/user/get/visualisation", methods=["GET"])
 @token_required_user
@@ -254,14 +334,15 @@ def get_visualisation(user):
     })
 
 
-# POST find patient
+# POST find patient / GET Patient List
 @user.route("/user/get/patient", methods=["GET", "POST"])
 @token_required_user
 def get_patient(user):
     try:
         if request.method == "GET":
-            patients = patient_detail_model.query.filter_by(
-                department_id=user["department_id"]).all()
+            patients = patient_detail_model.query \
+                .filter_by(department_id=user["department_id"]) \
+                .order_by(patient_detail_model.patient_id.desc()).all()
 
             if not patients:
                 return jsonify({
@@ -285,7 +366,8 @@ def get_patient(user):
                 if patient.feature_detail:
                     for feature in patient.feature_detail:
                         feature_detail = {
-                            "lung_cancer": feature.lung_cancer
+                            "lung_cancer": feature.lung_cancer,
+                            "image_class": feature.image_class,
                         }
                     patient_detail.update(feature_detail)
 
@@ -305,19 +387,28 @@ def get_patient(user):
                     "msg": "Patient name or lung cancer status not provided"
                 }), 400
 
-            if lung_cancer["patient"] == "":
+            if lung_cancer["patient"] is "" and lung_cancer["lung_cancer"] is not "":
                 patients = patient_detail_model.query \
                     .join(feature_detail_model) \
                     .filter(patient_detail_model.department_id == user["department_id"]) \
                     .filter(feature_detail_model.lung_cancer == lung_cancer["lung_cancer"]) \
                     .all()
+
+            elif lung_cancer["patient"] is not "" and lung_cancer["lung_cancer"] is "":
+                search = "%{}%".format(lung_cancer["patient"])
+                patients = patient_detail_model.query \
+                    .join(feature_detail_model) \
+                    .filter(patient_detail_model.department_id == user["department_id"]) \
+                    .filter(patient_detail_model.patient_name.like(search)) \
+                    .all()
+
             else:
                 search = "%{}%".format(lung_cancer["patient"])
                 patients = patient_detail_model.query \
                     .join(feature_detail_model) \
                     .filter(patient_detail_model.department_id == user["department_id"]) \
-                    .filter(feature_detail_model.lung_cancer == lung_cancer["lung_cancer"]) \
                     .filter(patient_detail_model.patient_name.like(search)) \
+                    .filter(feature_detail_model.lung_cancer == int(lung_cancer["lung_cancer"])) \
                     .all()
 
             patient_data = []
@@ -336,7 +427,8 @@ def get_patient(user):
                 if patient.feature_detail:
                     for feature in patient.feature_detail:
                         feature_detail = {
-                            "lung_cancer": feature.lung_cancer
+                            "lung_cancer": feature.lung_cancer,
+                            "image_class": feature.image_class
                         }
                     patient_detail.update(feature_detail)
 

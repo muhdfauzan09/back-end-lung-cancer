@@ -1,29 +1,41 @@
-from flask import Flask, g
+
+import os
+from db import db
+from flask import Flask
 from flask_cors import CORS
 from routes.auth import auth
-from routes.admin import admin
 from routes.user import user
-from db import db
+from routes.admin import admin
+from dotenv import load_dotenv
+from flask_mail import Mail, Message
+
 
 app = Flask(__name__)
-
 UPLOAD_URL_1 = 'static/images/classification'
 UPLOAD_URL_2 = 'static/images/profiles'
-ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif'}
 
 app.register_blueprint(auth)
 app.register_blueprint(admin)
 app.register_blueprint(user)
+load_dotenv()
 CORS(app)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql://root:@localhost/lung_cancer'
+
+app.config['MAIL_USE_TLS'] = False
+app.config['MAIL_USE_SSL'] = True
+app.config['MAIL_SERVER'] = os.getenv('MAIL_SMTP')
+app.config['MAIL_PORT'] = os.getenv('MAIL_PORT')
+app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
+app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
 app.config['UPLOAD_URL_IMAGE_CLASS'] = UPLOAD_URL_1
 app.config['UPLOAD_URL_IMAGE_PROFILE'] = UPLOAD_URL_2
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql://root:@localhost/lung_cancer'
+
 
 db.init_app(app)
+mail = Mail(app)
 
 
-@app.route('/test', )
 @app.teardown_appcontext
 def close_db(error):
     db.session.remove()

@@ -1,5 +1,8 @@
+import base64
 from db import db
+from flask_mail import Mail, Message
 from flask import Blueprint, jsonify, request
+from password_generator import PasswordGenerator
 from routes.authenticateUser import token_required_admin
 
 # Models
@@ -9,6 +12,7 @@ from models.departmentModel import department_detail_model
 
 # crete intance
 admin = Blueprint('admin', __name__)
+mail = Mail()
 
 
 # GET Dashboard
@@ -18,11 +22,23 @@ def get_dasboard(user):
     try:
         get_user = user_detail_model.query.filter_by(
             user_id=user["id"]).first()
+
         if not get_user:
             return jsonify({
                 "msg": "No User Found",
                 "status": 400,
             }), 400
+
+         # Total Number Patient
+        total_patients = patient_detail_model.query.count()
+
+        # Total Number Patient (Male)
+        total_male_patient = patient_detail_model.query.filter(
+            patient_detail_model.patient_gender == "Male").count()
+
+        # Total Number Patient (Male)
+        total_female_patient = patient_detail_model.query.filter(
+            patient_detail_model.patient_gender == "Female").count()
 
         user_detail = {
             "user_id": get_user.user_id,
@@ -35,9 +51,11 @@ def get_dasboard(user):
         }
 
         return jsonify({
-            "msg": "User Found",
             "status": 200,
             "data": user_detail,
+            "total_patient": total_patients,
+            "total_male_patient": total_male_patient,
+            "total_female_patient": total_female_patient
         }), 200
 
     except Exception as e:
@@ -82,7 +100,8 @@ def list_doctor(user):
                         "department_address": department.department_address,
                         "city": department.city,
                         "state": department.state,
-                        "zipcode": department.zipcode
+                        "zipcode": department.zipcode,
+                        "district": department.district
                     }
                     doctor_list.append({**user_detail, **department_details})
 
@@ -101,11 +120,19 @@ def list_doctor(user):
                     "msg": "Patient name or lung cancer status not provided"
                 }), 400
 
-            if user["doctorName"] == "":
+            if user["doctorName"] is "" and user["doctor"] is not "":
                 get_user = user_detail_model.query \
                     .join(department_detail_model) \
                     .filter(department_detail_model.department_type_id == user["doctor"]) \
                     .all()
+
+            elif user["doctorName"] is not "" and user["doctor"] is "":
+                search = "%{}%".format(user["doctorName"])
+                get_user = user_detail_model.query \
+                    .join(department_detail_model) \
+                    .filter(user_detail_model.user_first_name.like(search)) \
+                    .all()
+
             else:
                 search = "%{}%".format(user["doctorName"])
                 get_user = user_detail_model.query \
@@ -179,7 +206,8 @@ def list_department(user):
                     "department_address": department.department_address,
                     "city": department.city,
                     "state": department.state,
-                    "zipcode": department.zipcode
+                    "zipcode": department.zipcode,
+                    "district": department.district
                 }
 
                 department_list.append(department_detail)
@@ -199,10 +227,17 @@ def list_department(user):
                     "msg": "Patient name or lung cancer status not provided"
                 }), 400
 
-            if department["departmentName"] == "":
+            if department["departmentName"] is "" and department["department"] is not "":
                 get_department = department_detail_model.query \
                     .filter(department_detail_model.department_type_id == department["department"]) \
                     .all()
+
+            elif department["departmentName"] is not "" and department["department"] is "":
+                search = "%{}%".format(department["departmentName"])
+                get_department = department_detail_model.query \
+                    .filter(department_detail_model.department_name.like(search)) \
+                    .all()
+
             else:
                 search = "%{}%".format(department["departmentName"])
                 get_department = department_detail_model.query \
@@ -220,14 +255,16 @@ def list_department(user):
                     "department_address": department.department_address,
                     "city": department.city,
                     "state": department.state,
+                    "district": department.district,
                     "zipcode": department.zipcode
                 }
                 department_list.append(department_detail)
 
             return jsonify({
                 "code": 200,
-                "data": department_list
-            })
+                "data": department_list,
+                "search": search
+            }), 200
 
     except Exception as e:
         return jsonify({
@@ -236,12 +273,13 @@ def list_department(user):
         }), 500
 
 
-# GET user and department by Id
+# GET Doctor and department by Id
 @admin.route('/admin/view/<int:id>', methods=['GET'])
 @token_required_admin
 def admin_view(user, id):
     try:
-        user = user_detail_model.query.filter_by(user_id=id).first()
+        user = user_detail_model.query.filter_by(
+            user_id=id).first()  # Find Patient
 
         if not user:
             return jsonify({
@@ -276,6 +314,7 @@ def admin_view(user, id):
 
         get_patient = patient_detail_model.query.filter_by(
             department_id=department.department_id).all()
+
         patient_list = []
         for patient in get_patient:
             patient_detail = {
@@ -398,4 +437,89 @@ def get_patient_details(user, id):
         return jsonify({
             "code": 500,
             "msg": str(e)
+        }), 500
+
+
+# POST Register User
+@admin.route("/admin/register/user", methods=["POST"])
+def register_user():
+    try:
+        data = request.get_json()  # get Post data from FrontEnd
+        pwo = PasswordGenerator()
+        pwo.minlen = 10
+        pwo.maxlen = 20
+        pwo.minuchars = 2
+        pwo.minlchars = 3
+        pwo.minnumbers = 1
+        pwo.minschars = 1
+
+        # Check if the email already exists or not
+        existing_user = user_detail_model.query.filter_by(
+            user_email=data['email']).first()
+        if existing_user:
+            return jsonify({
+                "message": "The email is already registered.",
+                "status": 400
+            }), 400
+
+        password = pwo.generate()
+        encrypted_password = base64.b64encode(password.encode('utf-8'))
+
+        # Create a new user
+        new_user = user_detail_model(
+            role_id=2,
+            user_first_name=data['firstName'].upper(),
+            user_last_name=data['lastName'].upper(),
+            user_email=data['email'],
+            user_password=encrypted_password,
+            user_phone_number=data['phoneNumber'],
+            user_status="Approved"
+        )
+
+        db.session.add(new_user)
+        db.session.commit()
+        last_id = new_user.user_id  # Get the last inserted user ID
+
+        # Create new department
+        new_department = department_detail_model(
+            department_type_id=data['departmentType'],
+            user_id=last_id,
+            department_name=data['departmentName'].upper(),
+            department_address=data['departmentAddress'].upper(),
+            city=data['departmentCity'].upper(),
+            district=data['departmentDistrict'].upper(),
+            state=data['departmentState'].upper(),
+            zipcode=data['departmentZipCode'],
+        )
+
+        db.session.add(new_department)
+        db.session.commit()
+
+        msg = Message(
+            'Welcome to Pneumocast - Your Registration Details',
+            sender='muhdfauzan114@gmail.com',
+            recipients=[data['email']]
+        )
+        msg.body = f'''Dear {data['firstName'].upper()} {data['lastName'].upper()},
+
+        Welcome to Pneumocast Application! We are delighted to have you on board as a registered member of our platform. Your dedication to healthcare excellence is greatly appreciated, and we are thrilled to support you in your professional journey.
+
+        Below are your registration details:
+        Email: {data["email"]}
+        Password: {password}
+
+        We recommend that you keep this email in a safe place or securely manage your password for future reference. Please note that this password is case-sensitive.
+        '''
+        mail.send(msg)
+
+        return jsonify({
+            "status": 200,
+            "message": "Your registration has been successful.",
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            "status": 500,
+            "error": str(e),
         }), 500

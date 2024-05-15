@@ -2,14 +2,15 @@ import jwt
 import base64
 from db import db
 from flask import Blueprint, request, jsonify
+
+# Models
 from models.userModel import user_detail_model
 from models.departmentModel import department_detail_model
 
 auth = Blueprint('auth', __name__)
 
+
 # Register
-
-
 @auth.route('/user/register', methods=['POST'])
 def register_user():
     try:
