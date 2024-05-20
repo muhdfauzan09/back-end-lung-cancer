@@ -1,5 +1,7 @@
 import base64
 from db import db
+from datetime import datetime
+from collections import defaultdict
 from flask_mail import Mail, Message
 from flask import Blueprint, jsonify, request
 from password_generator import PasswordGenerator
@@ -7,8 +9,9 @@ from routes.authenticateUser import token_required_admin
 
 # Models
 from models.userModel import user_detail_model
-from models.patientModel import patient_detail_model
+from models.patientModel import patient_detail_model, feature_detail_model
 from models.departmentModel import department_detail_model
+
 
 # crete intance
 admin = Blueprint('admin', __name__)
@@ -120,13 +123,13 @@ def list_doctor(user):
                     "msg": "Patient name or lung cancer status not provided"
                 }), 400
 
-            if user["doctorName"] is "" and user["doctor"] is not "":
+            if user["doctorName"] == "" and user["doctor"] != "":
                 get_user = user_detail_model.query \
                     .join(department_detail_model) \
                     .filter(department_detail_model.department_type_id == user["doctor"]) \
                     .all()
 
-            elif user["doctorName"] is not "" and user["doctor"] is "":
+            elif user["doctorName"] != "" and user["doctor"] == "":
                 search = "%{}%".format(user["doctorName"])
                 get_user = user_detail_model.query \
                     .join(department_detail_model) \
@@ -227,12 +230,12 @@ def list_department(user):
                     "msg": "Patient name or lung cancer status not provided"
                 }), 400
 
-            if department["departmentName"] is "" and department["department"] is not "":
+            if department["departmentName"] == "" and department["department"] != "":
                 get_department = department_detail_model.query \
                     .filter(department_detail_model.department_type_id == department["department"]) \
                     .all()
 
-            elif department["departmentName"] is not "" and department["department"] is "":
+            elif department["departmentName"] != "" and department["department"] == "":
                 search = "%{}%".format(department["departmentName"])
                 get_department = department_detail_model.query \
                     .filter(department_detail_model.department_name.like(search)) \
@@ -296,6 +299,7 @@ def admin_view(user, id):
             "user_email": user.user_email,
             "user_phone_number": user.user_phone_number,
             "user_status": user.user_status,
+            "user_profile_image": user.user_profile_image
         }
 
         department_details = []
@@ -312,34 +316,10 @@ def admin_view(user, id):
         }
         department_details.append(department_detail)
 
-        get_patient = patient_detail_model.query.filter_by(
-            department_id=department.department_id).all()
-
-        patient_list = []
-        for patient in get_patient:
-            patient_detail = {
-                "patient_id": patient.patient_id,
-                "patient_name": patient.patient_name,
-                "patient_gender": patient.patient_gender,
-                "patient_address1": patient.patient_address1,
-                "patient_address2": patient.patient_address2,
-                "patient_postcode": patient.patient_postcode,
-                "patient_phone_number": patient.patient_phone_number,
-            }
-
-            if patient.feature_detail:
-                for feature in patient.feature_detail:
-                    feature_detail = {
-                        "lung_cancer": feature.lung_cancer
-                    }
-
-            patient_list.append({**patient_detail, **feature_detail})
-
         return jsonify({
             "msg": "User Found",
             "status": 200,
             "user": user_detail,
-            "patient": patient_list,
             "department": department_details,
         }), 200
 
@@ -473,7 +453,8 @@ def register_user():
             user_email=data['email'],
             user_password=encrypted_password,
             user_phone_number=data['phoneNumber'],
-            user_status="Approved"
+            user_status="Approved",
+            user_date_application=date.today(),
         )
 
         db.session.add(new_user)
@@ -516,6 +497,104 @@ def register_user():
             "status": 200,
             "message": "Your registration has been successful.",
         }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            "status": 500,
+            "error": str(e),
+        }), 500
+
+
+# filter data visualisation
+@admin.route("/admin/filter/visualizations/<int:id>", methods=["GET", "POST"])
+def filter_visualization(id):
+    try:
+        if request.method == "POST":
+            data = request.get_json()
+            image_class = data["class"]
+            endDate = data["endDate"]
+            startDate = data["startDate"]
+
+            convert_startDate = datetime.strptime(startDate, "%Y-%m")
+            convert_endDate = datetime.strptime(endDate, "%Y-%m")
+
+            find_data = department_detail_model.query \
+                .filter(department_detail_model.user_id == id) \
+                .join(patient_detail_model, department_detail_model.department_id == patient_detail_model.department_id) \
+                .join(feature_detail_model, patient_detail_model.patient_id == feature_detail_model.patient_id) \
+                .add_columns(feature_detail_model.feature_id, feature_detail_model.image_class, feature_detail_model.image_date_application, patient_detail_model.patient_name, patient_detail_model.patient_gender, patient_detail_model.patient_phone_number, feature_detail_model.lung_cancer) \
+                .filter(feature_detail_model.image_date_application.between(convert_startDate, convert_endDate), feature_detail_model.image_class == image_class).all()
+
+            monthly_patient = []
+            for monthly in find_data:
+                patient = {
+                    "patient_name": monthly.patient_name,
+                    "patient_gender": monthly.patient_gender,
+                    "patient_phone_number": monthly.patient_phone_number,
+                    "lung_cancer": monthly.lung_cancer,
+                    "image_date_classification": monthly.image_date_application.strftime("%d %b, %Y"),
+                    "image_date_application": monthly.image_date_application.strftime("%b %Y"),
+                    "image_class": monthly.image_class,
+                }
+                monthly_patient.append(patient)
+
+            patient_count_by_month = {}
+            for entry in monthly_patient:
+                month = entry["image_date_application"]
+                if month in patient_count_by_month:
+                    patient_count_by_month[month] += 1
+                else:
+                    patient_count_by_month[month] = 1
+
+            months = list(patient_count_by_month.keys())
+            counts = list(patient_count_by_month.values())
+
+            return jsonify({
+                "code": 200,
+                "month": months,
+                "patient_count": counts,
+                "patient_list": monthly_patient
+            })
+
+        if request.method == "GET":
+            find_data_positive = department_detail_model.query \
+                .filter(department_detail_model.user_id == id) \
+                .join(patient_detail_model, department_detail_model.department_id == patient_detail_model.department_id) \
+                .join(feature_detail_model, patient_detail_model.patient_id == feature_detail_model.patient_id) \
+                .add_columns(feature_detail_model.feature_id, feature_detail_model.image_class, feature_detail_model.image_date_application) \
+                .filter(feature_detail_model.image_class == "Positive").all()
+
+            find_data_negative = department_detail_model.query \
+                .filter(department_detail_model.user_id == id) \
+                .join(patient_detail_model, department_detail_model.department_id == patient_detail_model.department_id) \
+                .join(feature_detail_model, patient_detail_model.patient_id == feature_detail_model.patient_id) \
+                .add_columns(feature_detail_model.feature_id, feature_detail_model.image_class, feature_detail_model.image_date_application) \
+                .filter(feature_detail_model.image_class == "Negative").all()
+
+            patient_count_by_month = defaultdict(
+                lambda: {"positive": 0, "negative": 0})
+
+            for record in find_data_positive:
+                month = record.image_date_application.strftime("%b %Y")
+                patient_count_by_month[month]["positive"] += 1
+
+            for record in find_data_negative:
+                month = record.image_date_application.strftime("%b %Y")
+                patient_count_by_month[month]["negative"] += 1
+
+            # Convert defaultdict to a list of dictionaries for each month
+            patient_count_by_month_list = [
+                {"month": month,
+                    "positive": counts["positive"], "negative": counts["negative"]}
+                for month, counts in patient_count_by_month.items()
+            ]
+
+            return jsonify({
+                "msg": "User Found",
+                "status": 200,
+                "patient_count_by_month": patient_count_by_month_list
+            }), 200
 
     except Exception as e:
         db.session.rollback()

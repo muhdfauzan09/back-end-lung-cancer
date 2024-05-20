@@ -4,7 +4,7 @@ import pickle
 import numpy as np
 
 from db import db
-from datetime import date
+from datetime import datetime
 from flask_mail import Mail, Message
 from keras.preprocessing import image
 from werkzeug.utils import secure_filename
@@ -490,7 +490,8 @@ def get_patient_details(user, id):
                     "chest_pain": feature.chest_pain,
                     "image_path": feature.image_path,
                     "image_class": feature.image_class,
-                    "lung_cancer": feature.lung_cancer
+                    "lung_cancer": feature.lung_cancer,
+                    "image_date_application": feature.image_date_application
                 }
                 patient_list.append({**patient_detail, **feature_detail})
 
@@ -550,7 +551,7 @@ def post_prediction(user):
 
         new_feature = feature_detail_model(
             patient_id=patient_id,
-            date_application=date.today(),
+            date_application=datetime.today(),
             smoking=data["smoking"],
             yellow_fingers=data['yellow_fingers'],
             anxiety=data['anxiety'],
@@ -636,6 +637,7 @@ def post_prediction_image(patient_id):
                 # Update data
                 check_update.image_path = image_url
                 check_update.image_class = prediction_result
+                check_update.image_date_application = datetime.now()
                 db.session.commit()
 
                 return jsonify({

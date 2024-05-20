@@ -40,4 +40,5 @@ class feature_detail_model(db.Model):
     chest_pain = db.Column(db.Integer, nullable=True)
     lung_cancer = db.Column(db.Integer, nullable=True)
     image_path = db.Column(db.String(255), nullable=True)
+    image_date_application = db.Column(db.String(255), nullable=True)
     image_class = db.Column(db.String(255), nullable=True)

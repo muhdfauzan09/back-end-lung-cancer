@@ -28,5 +28,6 @@ class user_detail_model(db.Model):
     user_phone_number = db.Column(db.String(255), nullable=True)
     user_status = db.Column(db.String(20))
     user_profile_image = db.Column(db.String(255), nullable=True)
+    user_date_application = db.Column(db.Date, nullable=True)
     department_detail = db.relationship(
         department_detail_model, backref='deparment_detail', lazy=False, uselist=False)
