@@ -5,6 +5,7 @@ import numpy as np
 
 from db import db
 from datetime import datetime
+from collections import defaultdict
 from flask_mail import Mail, Message
 from keras.preprocessing import image
 from werkzeug.utils import secure_filename
@@ -63,18 +64,58 @@ def get_dashboard(user):
         postive_patient_count = patient_detail_model.query \
             .join(feature_detail_model) \
             .filter(patient_detail_model.department_id == department.department_id) \
-            .filter(feature_detail_model.lung_cancer == "1").count()
+            .filter(feature_detail_model.image_class == "Positive").count()
 
         # Negative Patient Count
         negative_patient_count = patient_detail_model.query \
             .join(feature_detail_model) \
             .filter(patient_detail_model.department_id == department.department_id) \
-            .filter(feature_detail_model.lung_cancer == "0").count()
+            .filter(feature_detail_model.image_class == "Negative").count()
 
-        # Get top 10 Patient
+        negative_not_count = patient_detail_model.query \
+            .join(feature_detail_model) \
+            .filter(patient_detail_model.department_id == department.department_id) \
+            .filter(feature_detail_model.image_class == "").count()
+
+        # Get top 10 Pesakit
         get_patient = patient_detail_model.query \
             .filter(patient_detail_model.department_id == department.department_id) \
             .order_by(patient_detail_model.patient_id.desc()).limit(10).all()
+
+        find_data_positive = department_detail_model.query \
+            .filter(department_detail_model.user_id == user["user_id"]) \
+            .join(patient_detail_model, department_detail_model.department_id == patient_detail_model.department_id) \
+            .join(feature_detail_model, patient_detail_model.patient_id == feature_detail_model.patient_id) \
+            .add_columns(feature_detail_model.feature_id, feature_detail_model.image_class, feature_detail_model.image_date_application) \
+            .filter(feature_detail_model.image_class == "Positive").all()
+
+        find_data_negative = department_detail_model.query \
+            .filter(department_detail_model.user_id == user["user_id"]) \
+            .join(patient_detail_model, department_detail_model.department_id == patient_detail_model.department_id) \
+            .join(feature_detail_model, patient_detail_model.patient_id == feature_detail_model.patient_id) \
+            .add_columns(feature_detail_model.feature_id, feature_detail_model.image_class, feature_detail_model.image_date_application) \
+            .filter(feature_detail_model.image_class == "Negative").all()
+
+        patient_count_by_month = defaultdict(
+            lambda: {"positive": 0, "negative": 0})
+
+        for record in find_data_positive:
+            month = record.image_date_application.strftime("%Y-%m")
+            patient_count_by_month[month]["positive"] += 1
+
+        for record in find_data_negative:
+            month = record.image_date_application.strftime("%Y-%m")
+            patient_count_by_month[month]["negative"] += 1
+
+        # Sort by bulan
+        sorted_months = sorted(patient_count_by_month.items(
+        ), key=lambda x: datetime.strptime(x[0], "%Y-%m"))
+
+        patient_count_by_month_list = [
+            {"month": datetime.strptime(month, "%Y-%m").strftime(
+                "%b %Y"), "positive": counts["positive"], "negative": counts["negative"]}
+            for month, counts in sorted_months
+        ]
 
         patient_list = []
         for patient in get_patient:
@@ -96,7 +137,6 @@ def get_dashboard(user):
                         "date_consultation": feature.date_application
                     }
                 patient_detail.update(feature_detail)
-
             patient_list.append(patient_detail)
 
         return jsonify({
@@ -104,11 +144,13 @@ def get_dashboard(user):
             "patient_list": patient_list,
             "total_patients": total_patients,
             "user_data": user_details.user_email,
+            "negative_not_count": negative_not_count,
             "male_patient_count": male_patient_count,
             "female_patient_count": female_patient_count,
             "positive_patient_count": postive_patient_count,
             "negative_patient_count": negative_patient_count,
-            "user_image_profile": user_details.user_profile_image
+            "user_image_profile": user_details.user_profile_image,
+            "patient_count_by_month_list": patient_count_by_month_list
         }), 200
 
     except Exception as e:
@@ -325,13 +367,156 @@ def edit_user_profile(user):
         }), 500
 
 
-# GET Visualisation
-@user.route("/user/get/visualisation", methods=["GET"])
+# GET Line Visualisation
+@user.route("/user/get/line/visualisation", methods=["GET", "POST"])
 @token_required_user
 def get_visualisation(user):
-    return jsonify({
-        "user": user["user_id"]
-    })
+    try:
+        if request.method == "POST":
+            data = request.get_json()
+            endDate = data["endDate"]
+            image_class = data["class"]
+            startDate = data["startDate"]
+
+            convert_startDate = datetime.strptime(startDate, "%Y-%m")
+            convert_endDate = datetime.strptime(endDate, "%Y-%m")
+
+            find_data = department_detail_model.query \
+                .filter(department_detail_model.user_id == user["user_id"]) \
+                .join(patient_detail_model, department_detail_model.department_id == patient_detail_model.department_id) \
+                .join(feature_detail_model, patient_detail_model.patient_id == feature_detail_model.patient_id) \
+                .add_columns(feature_detail_model.patient_id, feature_detail_model.feature_id, feature_detail_model.image_class, feature_detail_model.image_date_application, patient_detail_model.patient_name, patient_detail_model.patient_gender, patient_detail_model.patient_phone_number, feature_detail_model.lung_cancer) \
+                .filter(feature_detail_model.image_date_application.between(convert_startDate, convert_endDate), feature_detail_model.image_class == image_class).all()
+
+            monthly_patient = []
+            for monthly in find_data:
+                patient = {
+                    "patient_id": monthly.patient_id,
+                    "patient_name": monthly.patient_name,
+                    "patient_gender": monthly.patient_gender,
+                    "patient_phone_number": monthly.patient_phone_number,
+                    "lung_cancer": monthly.lung_cancer,
+                    "image_date_classification": monthly.image_date_application.strftime("%d %b, %Y"),
+                    "image_date_application": monthly.image_date_application.strftime("%b %Y"),
+                    "image_class": monthly.image_class,
+                }
+                monthly_patient.append(patient)
+
+            if monthly_patient == []:
+                return jsonify({
+                    "code": 400,
+                    "msg": f"No patients were diagnosed within the months {startDate} to {endDate}"
+                }), 400
+
+            patient_count_by_month = {}
+            for entry in monthly_patient:
+                month = entry["image_date_application"]
+                if month in patient_count_by_month:
+                    patient_count_by_month[month] += 1
+                else:
+                    patient_count_by_month[month] = 1
+
+            months = list(patient_count_by_month.keys())
+            counts = list(patient_count_by_month.values())
+
+            return jsonify({
+                "code": 200,
+                "month": months,
+                "patient_count": counts,
+                "patient_list": monthly_patient
+            })
+
+        if request.method == "GET":
+            find_data_positive = department_detail_model.query \
+                .filter(department_detail_model.user_id == user["user_id"]) \
+                .join(patient_detail_model, department_detail_model.department_id == patient_detail_model.department_id) \
+                .join(feature_detail_model, patient_detail_model.patient_id == feature_detail_model.patient_id) \
+                .add_columns(feature_detail_model.feature_id, feature_detail_model.image_class, feature_detail_model.image_date_application) \
+                .filter(feature_detail_model.image_class == "Positive").all()
+
+            find_data_negative = department_detail_model.query \
+                .filter(department_detail_model.user_id == user["user_id"]) \
+                .join(patient_detail_model, department_detail_model.department_id == patient_detail_model.department_id) \
+                .join(feature_detail_model, patient_detail_model.patient_id == feature_detail_model.patient_id) \
+                .add_columns(feature_detail_model.feature_id, feature_detail_model.image_class, feature_detail_model.image_date_application) \
+                .filter(feature_detail_model.image_class == "Negative").all()
+
+            patient_count_by_month = defaultdict(
+                lambda: {"positive": 0, "negative": 0})
+
+            for record in find_data_positive:
+                month = record.image_date_application.strftime("%Y-%m")
+                patient_count_by_month[month]["positive"] += 1
+
+            for record in find_data_negative:
+                month = record.image_date_application.strftime("%Y-%m")
+                patient_count_by_month[month]["negative"] += 1
+
+            # Sort by bulan
+            sorted_months = sorted(patient_count_by_month.items(
+            ), key=lambda x: datetime.strptime(x[0], "%Y-%m"))
+
+            patient_count_by_month_list = [
+                {"month": datetime.strptime(month, "%Y-%m").strftime(
+                    "%b %Y"), "positive": counts["positive"], "negative": counts["negative"]}
+                for month, counts in sorted_months
+            ]
+
+        return jsonify({
+            "msg": "User Found",
+            "status": 200,
+            "patient_count_by_month": patient_count_by_month_list
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            "status": 500,
+            "error": str(e),
+        }), 500
+
+
+# Get Bar Visualisaton
+@user.route('/user/get/bar/visualisaton', methods=['GET', 'POST'])
+@token_required_user
+def get_visualisaton(user):
+    try:
+        # Get Positive Class
+        getPositive = department_detail_model.query \
+            .filter(department_detail_model.user_id == user["user_id"]) \
+            .join(patient_detail_model, department_detail_model.department_id == patient_detail_model.department_id) \
+            .join(feature_detail_model, patient_detail_model.patient_id == feature_detail_model.patient_id) \
+            .add_columns(feature_detail_model.patient_id, feature_detail_model.feature_id, feature_detail_model.image_class, feature_detail_model.image_date_application, patient_detail_model.patient_name, patient_detail_model.patient_gender, patient_detail_model.patient_phone_number, feature_detail_model.lung_cancer) \
+            .filter(feature_detail_model.image_class == "Positive").count()
+
+        # Get Negative Class
+        getNegative = department_detail_model.query \
+            .filter(department_detail_model.user_id == user["user_id"]) \
+            .join(patient_detail_model, department_detail_model.department_id == patient_detail_model.department_id) \
+            .join(feature_detail_model, patient_detail_model.patient_id == feature_detail_model.patient_id) \
+            .add_columns(feature_detail_model.patient_id, feature_detail_model.feature_id, feature_detail_model.image_class, feature_detail_model.image_date_application, patient_detail_model.patient_name, patient_detail_model.patient_gender, patient_detail_model.patient_phone_number, feature_detail_model.lung_cancer) \
+            .filter(feature_detail_model.image_class == "Negative").count()
+
+        result = [getPositive, getNegative]
+
+        if request.method == "GET":
+            return jsonify({
+                "status": 200,
+                "result": result,
+            })
+
+        elif request.method == "POST":
+            data = request.get_json()
+            return jsonify({
+                "status": 200,
+            })
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            "status": 500,
+            "error": str(e),
+        }), 500
 
 
 # POST find patient / GET Patient List
@@ -370,7 +555,6 @@ def get_patient(user):
                             "image_class": feature.image_class,
                         }
                     patient_detail.update(feature_detail)
-
                 patient_list.append(patient_detail)
 
             return jsonify({
@@ -380,36 +564,21 @@ def get_patient(user):
 
         elif request.method == "POST":
             lung_cancer = request.get_json()
+            search = "%{}%".format(lung_cancer["patient"])
 
-            if "patient" not in lung_cancer or "lung_cancer" not in lung_cancer:
+            patients = patient_detail_model.query \
+                .join(feature_detail_model) \
+                .filter(patient_detail_model.department_id == user["department_id"]) \
+                .filter(patient_detail_model.patient_name.like(search)) \
+                .filter(feature_detail_model.lung_cancer == int(lung_cancer["class"])) \
+                .all()
+
+            # Check if patients list is empty
+            if not patients:
                 return jsonify({
                     "code": 400,
-                    "msg": "Patient name or lung cancer status not provided"
+                    "msg": f"There is no patient named {lung_cancer['patient']}"
                 }), 400
-
-            if lung_cancer["patient"] is "" and lung_cancer["lung_cancer"] is not "":
-                patients = patient_detail_model.query \
-                    .join(feature_detail_model) \
-                    .filter(patient_detail_model.department_id == user["department_id"]) \
-                    .filter(feature_detail_model.lung_cancer == lung_cancer["lung_cancer"]) \
-                    .all()
-
-            elif lung_cancer["patient"] is not "" and lung_cancer["lung_cancer"] is "":
-                search = "%{}%".format(lung_cancer["patient"])
-                patients = patient_detail_model.query \
-                    .join(feature_detail_model) \
-                    .filter(patient_detail_model.department_id == user["department_id"]) \
-                    .filter(patient_detail_model.patient_name.like(search)) \
-                    .all()
-
-            else:
-                search = "%{}%".format(lung_cancer["patient"])
-                patients = patient_detail_model.query \
-                    .join(feature_detail_model) \
-                    .filter(patient_detail_model.department_id == user["department_id"]) \
-                    .filter(patient_detail_model.patient_name.like(search)) \
-                    .filter(feature_detail_model.lung_cancer == int(lung_cancer["lung_cancer"])) \
-                    .all()
 
             patient_data = []
             for patient in patients:
@@ -424,14 +593,14 @@ def get_patient(user):
                     "patient_phone_number": patient.patient_phone_number,
                 }
 
+                feature_detail = {}
                 if patient.feature_detail:
                     for feature in patient.feature_detail:
                         feature_detail = {
                             "lung_cancer": feature.lung_cancer,
                             "image_class": feature.image_class
                         }
-                    patient_detail.update(feature_detail)
-
+                patient_detail.update(feature_detail)
                 patient_data.append(patient_detail)
 
             return jsonify({

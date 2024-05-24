@@ -21,7 +21,7 @@ mail = Mail()
 # GET Dashboard
 @admin.route('/admin/dashboard')
 @token_required_admin
-def get_dasboard(user):
+def get_dashboard(user):
     try:
         get_user = user_detail_model.query.filter_by(
             user_id=user["id"]).first()
@@ -32,33 +32,86 @@ def get_dasboard(user):
                 "status": 400,
             }), 400
 
-         # Total Number Patient
-        total_patients = patient_detail_model.query.count()
+        # Set User Detail
+        user_detail = {
+            "user_id": get_user.user_id,
+            "user_first_name": get_user.user_first_name,
+            "user_last_name": get_user.user_last_name,
+            "user_email": get_user.user_email,
+        }
+
+        total_user = user_detail_model.query.count()  # Total user
+        total_patients = patient_detail_model.query.count()  # Total Number Patient
+        total_department = department_detail_model.query.count()  # Total Department
 
         # Total Number Patient (Male)
         total_male_patient = patient_detail_model.query.filter(
             patient_detail_model.patient_gender == "Male").count()
 
-        # Total Number Patient (Male)
+        # Total Number Patient (Female)
         total_female_patient = patient_detail_model.query.filter(
             patient_detail_model.patient_gender == "Female").count()
 
-        user_detail = {
-            "user_id": get_user.user_id,
-            "role_id": get_user.role_id,
-            "user_first_name": get_user.user_first_name,
-            "user_last_name": get_user.user_last_name,
-            "user_email": get_user.user_email,
-            "user_phone_number": get_user.user_phone_number,
-            "user_status": get_user.user_status,
-        }
+        # Total Number Patient Positive
+        total_positive_patient = patient_detail_model.query \
+            .join(feature_detail_model, patient_detail_model.patient_id == feature_detail_model.patient_id) \
+            .filter(feature_detail_model.image_class == "Positive").count()
+
+        # Total Number Patient Negative
+        total_negative_patient = patient_detail_model.query \
+            .join(feature_detail_model, patient_detail_model.patient_id == feature_detail_model.patient_id) \
+            .filter(feature_detail_model.image_class == "Negative").count()
+
+        # Total Number patient not diagnosed yet
+        total_not_patient = patient_detail_model.query \
+            .join(feature_detail_model, patient_detail_model.patient_id == feature_detail_model.patient_id) \
+            .filter(feature_detail_model.image_class == "null").count()
+
+        # Data Visualization (Positive)
+        find_data_positive = feature_detail_model.query \
+            .filter(feature_detail_model.image_class == "Positive") \
+            .add_columns(feature_detail_model.feature_id, feature_detail_model.image_class, feature_detail_model.image_date_application) \
+            .all()
+
+        # Data Visualization (Negative)
+        find_data_negative = feature_detail_model.query \
+            .filter(feature_detail_model.image_class == "Negative") \
+            .add_columns(feature_detail_model.feature_id, feature_detail_model.image_class, feature_detail_model.image_date_application) \
+            .all()
+
+        patient_count_by_month = defaultdict(
+            lambda: {"positive": 0, "negative": 0})
+
+        for record in find_data_positive:
+            month = record.image_date_application.strftime("%Y-%m")
+            patient_count_by_month[month]["positive"] += 1
+
+        for record in find_data_negative:
+            month = record.image_date_application.strftime("%Y-%m")
+            patient_count_by_month[month]["negative"] += 1
+
+        # Sort by bulan
+        sorted_months = sorted(patient_count_by_month.items(
+        ), key=lambda x: datetime.strptime(x[0], "%Y-%m"))
+
+        patient_count_by_month_list = [
+            {"month": datetime.strptime(month, "%Y-%m").strftime(
+                "%b %Y"), "positive": counts["positive"], "negative": counts["negative"]}
+            for month, counts in sorted_months
+        ]
 
         return jsonify({
             "status": 200,
             "data": user_detail,
+            "total_user": total_user,
             "total_patient": total_patients,
+            "total_department": total_department,
+            "total_not_patient": total_not_patient,
             "total_male_patient": total_male_patient,
-            "total_female_patient": total_female_patient
+            "total_female_patient": total_female_patient,
+            "total_positive_patient": total_positive_patient,
+            "total_negative_patient": total_negative_patient,
+            "patient_count_by_month_list": patient_count_by_month_list
         }), 200
 
     except Exception as e:
@@ -454,7 +507,7 @@ def register_user():
             user_password=encrypted_password,
             user_phone_number=data['phoneNumber'],
             user_status="Approved",
-            user_date_application=date.today(),
+            user_date_application=datetime.today(),
         )
 
         db.session.add(new_user)
@@ -511,9 +564,10 @@ def register_user():
 def filter_visualization(id):
     try:
         if request.method == "POST":
+
             data = request.get_json()
-            image_class = data["class"]
             endDate = data["endDate"]
+            image_class = data["class"]
             startDate = data["startDate"]
 
             convert_startDate = datetime.strptime(startDate, "%Y-%m")
@@ -576,25 +630,28 @@ def filter_visualization(id):
                 lambda: {"positive": 0, "negative": 0})
 
             for record in find_data_positive:
-                month = record.image_date_application.strftime("%b %Y")
+                month = record.image_date_application.strftime("%Y-%m")
                 patient_count_by_month[month]["positive"] += 1
 
             for record in find_data_negative:
-                month = record.image_date_application.strftime("%b %Y")
+                month = record.image_date_application.strftime("%Y-%m")
                 patient_count_by_month[month]["negative"] += 1
 
-            # Convert defaultdict to a list of dictionaries for each month
+            # Sort by bulan
+            sorted_months = sorted(patient_count_by_month.items(
+            ), key=lambda x: datetime.strptime(x[0], "%Y-%m"))
+
             patient_count_by_month_list = [
-                {"month": month,
-                    "positive": counts["positive"], "negative": counts["negative"]}
-                for month, counts in patient_count_by_month.items()
+                {"month": datetime.strptime(month, "%Y-%m").strftime(
+                    "%b %Y"), "positive": counts["positive"], "negative": counts["negative"]}
+                for month, counts in sorted_months
             ]
 
-            return jsonify({
-                "msg": "User Found",
-                "status": 200,
-                "patient_count_by_month": patient_count_by_month_list
-            }), 200
+        return jsonify({
+            "msg": "User Found",
+            "status": 200,
+            "patient_count_by_month": patient_count_by_month_list
+        }), 200
 
     except Exception as e:
         db.session.rollback()
