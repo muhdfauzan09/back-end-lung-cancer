@@ -298,12 +298,13 @@ def add_user_profile(user):
             check_user.user_profile_image = image_url  # Update Column
             db.session.commit()
             return jsonify({
-                "msg": "File uploaded successfully"
+                "msg": "File uploaded successfully",
             }), 200
 
         else:
             return jsonify({
-                "msg": "File type not allowed"
+                "code": 400,
+                "msg": "File type not supported. Please upload only JPEG or JPG files."
             }), 400
 
     except Exception as e:
@@ -357,8 +358,8 @@ def edit_user_profile(user):
 
         else:
             return jsonify({
-                "code": 404,
-                "msg": "File type not allowed"
+                "code": 400,
+                "msg": "File type not supported. Please upload only JPEG or JPG files."
             }), 400
 
     except Exception as e:
@@ -570,14 +571,14 @@ def get_patient(user):
                 .join(feature_detail_model) \
                 .filter(patient_detail_model.department_id == user["department_id"]) \
                 .filter(patient_detail_model.patient_name.like(search)) \
-                .filter(feature_detail_model.lung_cancer == int(lung_cancer["class"])) \
+                .filter(feature_detail_model.image_class == lung_cancer["class"]) \
                 .all()
 
             # Check if patients list is empty
             if not patients:
                 return jsonify({
                     "code": 400,
-                    "msg": f"There is no patient named {lung_cancer['patient']}"
+                    "msg": f"There is no patient named {lung_cancer['patient']} is {lung_cancer['class']}"
                 }), 400
 
             patient_data = []

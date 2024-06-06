@@ -23,6 +23,7 @@ CORS(app)
 
 app.config['MAIL_USE_TLS'] = False
 app.config['MAIL_USE_SSL'] = True
+app.config['MAX_CONTENT_LENGTH'] = 5 * 1000 * 1000
 app.config['MAIL_SERVER'] = os.getenv('MAIL_SMTP')
 app.config['MAIL_PORT'] = os.getenv('MAIL_PORT')
 app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
