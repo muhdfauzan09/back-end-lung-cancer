@@ -239,6 +239,7 @@ def list_doctor(user):
 @admin.route("/admin/department/list", methods=["GET", "POST"])
 @token_required_admin
 def list_department(user):
+
     try:
         if request.method == "GET":
             get_department = department_detail_model.query \
