@@ -29,6 +29,33 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
+# GET User SideBar
+@user.route('/user/sidebar/get-info', methods=['GET'])
+@token_required_user
+def get_useSideBar(user):
+
+    try:
+        get_user = user_detail_model.query.filter(
+            user_detail_model.user_id == user["user_id"]).first()
+
+        user_details = {
+            "user_first_name": get_user.user_first_name,
+            "user_profile_image": get_user.user_profile_image
+        }
+
+        return jsonify({
+            "data": user_details,
+            "user_id": user["user_id"],
+            "code": 200,
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            "status": 500,
+            "error": str(e)
+        }), 500
+
+
 # GET Dashboard
 @user.route('/user/get/dashboard', methods=['GET'])
 @token_required_user
@@ -143,7 +170,9 @@ def get_dashboard(user):
             "status": 200,
             "patient_list": patient_list,
             "total_patients": total_patients,
-            "user_data": user_details.user_email,
+            "user_email": user_details.user_email,
+            "user_name": user_details.user_first_name,
+
             "negative_not_count": negative_not_count,
             "male_patient_count": male_patient_count,
             "female_patient_count": female_patient_count,
