@@ -7,6 +7,7 @@ from flask import Blueprint, jsonify, request
 from password_generator import PasswordGenerator
 from routes.authenticateUser import token_required_admin
 
+
 # Models
 from models.userModel import user_detail_model
 from models.patientModel import patient_detail_model, feature_detail_model
@@ -145,6 +146,7 @@ def list_doctor(user):
                     "user_email": user.user_email,
                     "user_phone_number": user.user_phone_number,
                     "user_status": user.user_status,
+                    "user_profile_image": user.user_profile_image,
                 }
 
                 if user.department_detail:
@@ -232,6 +234,103 @@ def list_doctor(user):
         return jsonify({
             "status": 500,
             "error": str(e),
+        }), 500
+
+
+# GET & POST Visualisation
+@admin.route('/admin/visualisation', methods=['GET', 'POST'])
+@token_required_admin
+def visualisation(user):
+    try:
+        if request.method == 'GET':
+            # Data Visualization (Positive)
+            positive_data = feature_detail_model.query \
+                .filter(feature_detail_model.image_class == "Positive") \
+                .add_columns(feature_detail_model.feature_id, feature_detail_model.image_class, feature_detail_model.image_date_application) \
+                .all()
+
+            # Data Visualization (Negative)
+            negative_data = feature_detail_model.query \
+                .filter(feature_detail_model.image_class == "Negative") \
+                .add_columns(feature_detail_model.feature_id, feature_detail_model.image_class, feature_detail_model.image_date_application) \
+                .all()
+
+            patient_count_by_month = defaultdict(
+                lambda: {"positive": 0, "negative": 0})
+
+            for record in positive_data:
+                month = record.image_date_application.strftime("%Y-%m")
+                patient_count_by_month[month]["positive"] += 1
+
+            for record in negative_data:
+                month = record.image_date_application.strftime("%Y-%m")
+                patient_count_by_month[month]["negative"] += 1
+
+            # Sort by bulan
+            sorted_months = sorted(patient_count_by_month.items(
+            ), key=lambda x: datetime.strptime(x[0], "%Y-%m"))
+
+            patient_count_by_month_list = [
+                {"month": datetime.strptime(month, "%Y-%m").strftime("%b %Y"),
+                 "positive": counts["positive"], "negative": counts["negative"]}
+                for month, counts in sorted_months
+            ]
+
+            return jsonify({
+                "status": 200,
+                "patient_count_by_month_list": patient_count_by_month_list
+            }), 200
+
+        elif request.method == 'POST':
+            data = request.get_json()
+            start_date = data["startDate"]
+            end_date = data["endDate"]
+            image_class = data["class"]
+
+            convert_start_date = datetime.strptime(start_date, "%Y-%m")
+            convert_end_date = datetime.strptime(end_date, "%Y-%m")
+
+            find_data = department_detail_model.query \
+                .join(patient_detail_model, department_detail_model.department_id == patient_detail_model.department_id) \
+                .join(feature_detail_model, patient_detail_model.patient_id == feature_detail_model.patient_id) \
+                .add_columns(feature_detail_model.patient_id, feature_detail_model.feature_id, feature_detail_model.image_class, feature_detail_model.image_date_application, patient_detail_model.patient_name, patient_detail_model.patient_gender, patient_detail_model.patient_phone_number, feature_detail_model.lung_cancer) \
+                .filter(feature_detail_model.image_date_application.between(convert_start_date, convert_end_date), feature_detail_model.image_class == image_class) \
+                .all()
+
+            monthly_patient_list = []
+            for record in find_data:
+                patient = {
+                    "patient_id": record.patient_id,
+                    "lung_cancer": record.lung_cancer,
+                    "image_date_classification": record.image_date_application.strftime("%d %b, %Y"),
+                    "image_date_application": record.image_date_application.strftime("%Y-%m"),
+                    "image_class": record.image_class,
+                }
+                monthly_patient_list.append(patient)
+
+            patient_count_by_month = defaultdict(int)
+            for entry in monthly_patient_list:
+                month = entry["image_date_application"]
+                patient_count_by_month[month] += 1
+
+            sorted_months = sorted(patient_count_by_month.keys())
+            sorted_counts = [patient_count_by_month[month]
+                             for month in sorted_months]
+
+            formatted_months = [datetime.strptime(
+                month, "%Y-%m").strftime("%b %Y") for month in sorted_months]
+
+            return jsonify({
+                "code": 200,
+                "month": formatted_months,
+                "patient_count": sorted_counts,
+                "patient_list": monthly_patient_list
+            }), 200
+
+    except Exception as e:
+        return jsonify({
+            "status": 500,
+            "error": str(e)
         }), 500
 
 
@@ -560,7 +659,7 @@ def register_user():
         }), 500
 
 
-# filter data visualisation
+# filter data visualisation each user (Doctor)
 @admin.route("/admin/filter/visualizations/<int:id>", methods=["GET", "POST"])
 def filter_visualization(id):
     try:

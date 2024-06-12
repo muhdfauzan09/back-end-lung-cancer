@@ -13,6 +13,7 @@ from password_generator import PasswordGenerator
 from routes.authenticateUser import token_required_user
 from flask import Blueprint, jsonify, request, current_app
 
+
 # Models
 from models.userModel import user_detail_model
 from models.departmentModel import department_detail_model
