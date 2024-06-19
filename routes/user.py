@@ -162,6 +162,8 @@ def get_dashboard(user):
                 for feature in patient.feature_detail:
                     feature_detail = {
                         "lung_cancer": feature.lung_cancer,
+                        "image_class": feature.image_class,
+                        "date_image": feature.image_date_application,
                         "date_consultation": feature.date_application
                     }
                 patient_detail.update(feature_detail)
@@ -608,7 +610,7 @@ def get_patient(user):
             if not patients:
                 return jsonify({
                     "code": 400,
-                    "msg": f"There is no patient named {lung_cancer['patient']} is {lung_cancer['class']}"
+                    "msg": f"No patient were found"
                 }), 400
 
             patient_data = []
