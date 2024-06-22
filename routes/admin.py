@@ -172,43 +172,28 @@ def list_doctor(user):
         if request.method == "POST":
             user = request.get_json()
 
-            if "doctor" not in user or "doctorName" not in user:
+            search = "%{}%".format(user["doctorName"])
+            get_user = user_detail_model.query \
+                .join(department_detail_model) \
+                .filter(user_detail_model.user_first_name.like(search)) \
+                .filter(department_detail_model.department_type_id == user["doctor"]) \
+                .all()
+
+            if not get_user:
                 return jsonify({
                     "code": 400,
-                    "msg": "Patient name or lung cancer status not provided"
+                    "msg": "No doctors were found"
                 }), 400
-
-            if user["doctorName"] == "" and user["doctor"] != "":
-                get_user = user_detail_model.query \
-                    .join(department_detail_model) \
-                    .filter(department_detail_model.department_type_id == user["doctor"]) \
-                    .all()
-
-            elif user["doctorName"] != "" and user["doctor"] == "":
-                search = "%{}%".format(user["doctorName"])
-                get_user = user_detail_model.query \
-                    .join(department_detail_model) \
-                    .filter(user_detail_model.user_first_name.like(search)) \
-                    .all()
-
-            else:
-                search = "%{}%".format(user["doctorName"])
-                get_user = user_detail_model.query \
-                    .join(department_detail_model) \
-                    .filter(user_detail_model.user_first_name.like(search)) \
-                    .filter(department_detail_model.department_type_id == user["doctor"]) \
-                    .all()
 
             doctor_list = []
             for user in get_user:
                 user_detail = {
-                    "user_id": user.user_id,
-                    "role_id": user.role_id,
                     "user_first_name": user.user_first_name,
                     "user_last_name": user.user_last_name,
                     "user_email": user.user_email,
                     "user_phone_number": user.user_phone_number,
                     "user_status": user.user_status,
+                    "user_profile_image": user.user_profile_image,
                 }
 
                 if user.department_detail:
@@ -217,10 +202,6 @@ def list_doctor(user):
                         "department_id": department.department_id,
                         "department_type_id": department.department_type_id,
                         "department_name": department.department_name,
-                        "department_address": department.department_address,
-                        "city": department.city,
-                        "state": department.state,
-                        "zipcode": department.zipcode
                     }
                     doctor_list.append({**user_detail, **department_details})
 
@@ -338,7 +319,6 @@ def visualisation(user):
 @admin.route("/admin/department/list", methods=["GET", "POST"])
 @token_required_admin
 def list_department(user):
-
     try:
         if request.method == "GET":
             get_department = department_detail_model.query \
@@ -377,29 +357,17 @@ def list_department(user):
         elif request.method == "POST":
             department = request.get_json()
 
-            if "department" not in department or "departmentName" not in department:
+            search = "%{}%".format(department["departmentName"])
+            get_department = department_detail_model.query \
+                .filter(department_detail_model.department_type_id == department["department"]) \
+                .filter(department_detail_model.department_name.like(search)) \
+                .all()
+
+            if not get_department:
                 return jsonify({
-                    "code": 400,
-                    "msg": "Patient name or lung cancer status not provided"
-                }), 400
-
-            if department["departmentName"] == "" and department["department"] != "":
-                get_department = department_detail_model.query \
-                    .filter(department_detail_model.department_type_id == department["department"]) \
-                    .all()
-
-            elif department["departmentName"] != "" and department["department"] == "":
-                search = "%{}%".format(department["departmentName"])
-                get_department = department_detail_model.query \
-                    .filter(department_detail_model.department_name.like(search)) \
-                    .all()
-
-            else:
-                search = "%{}%".format(department["departmentName"])
-                get_department = department_detail_model.query \
-                    .filter(department_detail_model.department_type_id == department["department"]) \
-                    .filter(department_detail_model.department_name.like(search)) \
-                    .all()
+                    "code": 404,
+                    "msg": "No department were found"
+                }), 404
 
             department_list = []
             for department in get_department:
@@ -469,11 +437,44 @@ def admin_view(user, id):
         }
         department_details.append(department_detail)
 
+        # Get all patient buy department
+        get_patient_count = patient_detail_model.query \
+            .filter(patient_detail_model.department_id == department.department_id).count()
+
+        # get count male
+        get_male_count = patient_detail_model.query \
+            .filter(patient_detail_model.department_id == department.department_id) \
+            .filter(patient_detail_model.patient_gender == "Male").count()
+
+        # get count female
+        get_female_count = patient_detail_model.query \
+            .filter(patient_detail_model.department_id == department.department_id) \
+            .filter(patient_detail_model.patient_gender == "Female").count()
+
+        # get count positive
+        get_positive_count = patient_detail_model.query \
+            .filter(patient_detail_model.department_id == department.department_id) \
+            .join(feature_detail_model, feature_detail_model.patient_id == patient_detail_model.patient_id) \
+            .filter(feature_detail_model.image_class == "Positive").count()
+
+        # get count positive
+        get_negative_count = patient_detail_model.query \
+            .filter(patient_detail_model.department_id == department.department_id) \
+            .join(feature_detail_model, feature_detail_model.patient_id == patient_detail_model.patient_id) \
+            .filter(feature_detail_model.image_class == "Negative").count()
+
         return jsonify({
             "msg": "User Found",
             "status": 200,
             "user": user_detail,
             "department": department_details,
+            "patient_count": {
+                "get_male_count": get_male_count,
+                "get_female_count": get_female_count,
+                "get_patient_count": get_patient_count,
+                "get_positive_count": get_positive_count,
+                "get_negative_count": get_negative_count,
+            }
         }), 200
 
     except Exception as e:
