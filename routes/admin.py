@@ -41,7 +41,8 @@ def get_dashboard(user):
             "user_email": get_user.user_email,
         }
 
-        total_user = user_detail_model.query.count()  # Total user
+        total_user = user_detail_model.query.filter(
+            user_detail_model.role_id == 2).count()  # Total user
         total_patients = patient_detail_model.query.count()  # Total Number Patient
         total_department = department_detail_model.query.count()  # Total Department
 
